@@ -1,0 +1,35 @@
+#+TITLE: xlsx2csv
+#+AUTHOR: Damon
+#+OPTIONS: toc:t
+
+* Overview
+- CLI that converts an =.xlsx= workbook to CSV.
+- Defaults: reads every sheet when no sheet name is provided; writes to STDOUT when no =-o= is given.
+- Designed to stream efficiently for tools like =rga= and tolerate early pipe closures.
+
+* Usage
+- All sheets to STDOUT: ~xlsx2csv input.xlsx > all.csv~
+- Single sheet: ~xlsx2csv input.xlsx "Sheet Name" > sheet.csv~
+- Write to file: ~xlsx2csv input.xlsx -o out.csv~
+- Piped (safe for early consumers): ~xlsx2csv input.xlsx | head -n 10~
+
+* Build
+- Release build: ~cargo build --release~
+- Binary path: =target/release/xlsx2csv=
+
+* Implementation Notes
+- Parsing: Uses =zip= to read the XLSX archive and =quick-xml= to stream-parse XML parts (no full in-memory workbook).
+- Sheet discovery:
+  - Reads =xl/_rels/workbook.xml.rels= for relationship targets.
+  - Reads =xl/workbook.xml= to collect sheet names + rel ids, normalizing paths like =~/xl/worksheets/sheetN.xml=.
+- Shared strings: Streams =xl/sharedStrings.xml=, concatenating rich text runs while ignoring phonetic text spans.
+- Cell handling:
+  - Streams each worksheet’s =<row>= / =<c>= elements, mapping cell types (shared string, inlineStr, bool, number, error, plain string).
+  - Resolves column index from the cell reference (e.g., =C5= → column 2) and pads rows as needed.
+  - CSV writer is in flexible mode so rows of different widths across sheets are allowed.
+- Output merging: Iterates target sheets sequentially and writes rows into a single CSV stream with no separators between sheets.
+- Broken pipe resilience: Traverses error chains for =BrokenPipe= and exits cleanly so downstream tools can terminate early without failing the adapter.
+
+* Notes on WSL / Paths
+- No temp files under =/mnt/c= are created; the reader streams directly from the XLSX archive.
+- Works with Unicode paths as long as the OS provides them to the process (WSL-friendly).
